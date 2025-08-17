@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Classroom Soundboard</title>
+<style>
+  :root{
+    --panel:#111827; --card:#1f2937; --muted:#94a3b8; --text:#e5e7eb;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:linear-gradient(180deg,#0b1222 0%, #0f172a 40%, #0c111c 100%);
+       color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
+       display:flex;flex-direction:column;gap:14px;padding:14px}
+  .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+       background:rgba(17,24,39,.6);border:1px solid rgba(148,163,184,.18);
+       backdrop-filter:blur(6px);padding:8px 10px;border-radius:14px}
+  .title{font-weight:800}
+  .sp{flex:1}
+  .vol{display:flex;align-items:center;gap:8px;background:rgba(31,41,55,.7);
+       padding:6px 8px;border-radius:12px;border:1px solid rgba(148,163,184,.15)}
+  .grid{display:grid;grid-template-columns:repeat(4, minmax(0,1fr));gap:12px}
+  @media (max-width:900px){.grid{grid-template-columns:repeat(3,1fr)}}
+  @media (max-width:640px){.grid{grid-template-columns:repeat(2,1fr)}}
+  .pad{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;
+       gap:6px;padding:16px 12px;border-radius:16px;background:radial-gradient(120% 120% at 10% 10%, #22304a 0%, #111827 60%);
+       border:1px solid rgba(148,163,184,.18);box-shadow:0 10px 24px rgba(0,0,0,.25);
+       user-select:none;cursor:pointer;min-height:110px;text-align:center}
+  .pad .label{font-size:16px;font-weight:800;color:#ffffff} /* force white labels */
+  .pad .hint{font-size:12px;color:var(--muted)}
+  .pad .tools{position:absolute;top:8px;right:8px;display:flex;gap:8px}
+  .iconbtn{background:rgba(0,0,0,.25); border:1px solid rgba(148,163,184,.2); color:var(--text);
+           width:30px;height:30px;border-radius:10px;cursor:pointer}
+  input[type=file]{display:none}
+  .btn{appearance:none;border:0;background:var(--card);color:var(--text);
+       padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:600;
+       border:1px solid rgba(148,163,184,.18)}
+  .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:50}
+  .overlay.show{display:flex}
+  .overlay .big{font-size: clamp(42px, 7.5vw, 120px); font-weight:900; letter-spacing:.8px;
+    background:linear-gradient(180deg, #fff, #a5b4fc 80%); -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow: 0 10px 30px rgba(0,0,0,.5)}
+  .toast{position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
+    background:rgba(17,24,39,.92); border:1px solid rgba(148,163,184,.25); color:var(--text);
+    padding:8px 12px; border-radius:10px; font-size:13px; display:none; z-index:60}
+  .toast.show{display:block}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="title">🎛️ Classroom Soundboard</div>
+    <div class="sp"></div>
+    <div class="vol">
+      <span>Volume</span><input id="masterVol" type="range" min="0" max="1" step="0.01" value="0.9" />
+      <button id="stopAll" class="btn">Stop All</button>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <div class="overlay" id="overlay"><div class="big" id="overlayText"></div></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  // === Config: put MP3s into ./assets/ (lowercase names) ===
+  const ASSET_MAP = {
+    later:         "assets/later.mp3",
+    among:         "assets/among.mp3",
+    applause:      "assets/applause.mp3",
+    badum:         "assets/badum.mp3",
+    crickets:      "assets/crickets.mp3",
+    alone:         "assets/alone.mp3",
+    nothingbeats:  "assets/nothingbeats.mp3",
+    elevator:      "assets/elevator.mp3",
+    laugh:         "assets/laugh.mp3",
+    hero:          "assets/hero.mp3",
+    sad:           "assets/sad.mp3",
+    boom:          "assets/boom.mp3"
+  };
+
+  // === Audio engine (same as before) ===
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+  const liveNodes = new Set();
+  const now = ()=> ctx.currentTime;
+  function addNode(n){ if(!n) return; liveNodes.add(n); const onend=()=>liveNodes.delete(n); try{n.onended = onend}catch{} }
+  function stopAll(){ const g = master.gain; const t=now(); const old=g.value; g.cancelScheduledValues(t); g.setValueAtTime(old,t); g.linearRampToValueAtTime(0,t+0.08); setTimeout(()=>g.setValueAtTime(old,now()),200); }
+
+  function makeNoiseBuffer(len=2){ const length=Math.floor(ctx.sampleRate*len); const buf=ctx.createBuffer(1,length,ctx.sampleRate); const d=buf.getChannelData(0); for(let i=0;i<length;i++){ d[i]=(Math.random()*2-1); } return buf; }
+  function beep(freq=660, dur=0.15, start){ start = start ?? now(); const o=ctx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(freq,start); const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,start); g.gain.linearRampToValueAtTime(1.0,start+0.01); g.gain.exponentialRampToValueAtTime(0.0001,start+dur); o.connect(g); g.connect(master); o.start(start); o.stop(start+dur+0.02); addNode(o); }
+  function feedbackDelay(input, time=0.12, feedback=0.35, cutoff=2500){ const delay=ctx.createDelay(); delay.delayTime.value=time; const fb=ctx.createGain(); fb.gain.value=feedback; const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=cutoff; input.connect(delay); delay.connect(lp); lp.connect(fb); fb.connect(delay); const out=ctx.createGain(); out.gain.value=0.8; lp.connect(out); return {in:input, out}; }
+
+  // Synthesis for a few classic cues (used as fallbacks if a file is missing)
+  function playApplause(){ const dur=2.6; const src=ctx.createBufferSource(); src.buffer=makeNoiseBuffer(dur); const sh=ctx.createBiquadFilter(); sh.type='bandpass'; sh.frequency.value=1200; sh.Q.value=0.6; const env=ctx.createGain(); env.gain.setValueAtTime(0,now()); const t0=now(); for(let i=0;i<13;i++){ const st=t0+i*0.18+(Math.random()*0.04); env.gain.linearRampToValueAtTime(0.0,st); env.gain.linearRampToValueAtTime(1.0,st+0.02); env.gain.linearRampToValueAtTime(0.2,st+0.10);} env.gain.linearRampToValueAtTime(0.0,t0+dur); src.connect(sh); sh.connect(env); const fb=feedbackDelay(env,0.08,0.45,3400); fb.out.connect(master); src.start(); addNode(src); }
+  function drum(freq,dur,start){ const o=ctx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(freq,start); const g=ctx.createGain(); g.gain.setValueAtTime(0,start); g.gain.linearRampToValueAtTime(0.9,start+0.01); g.gain.exponentialRampToValueAtTime(0.0001,start+dur); o.connect(g); g.connect(master); o.start(start); o.stop(start+dur); addNode(o); }
+  function snare(start){ const src=ctx.createBufferSource(); src.buffer=makeNoiseBuffer(0.3); const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1800; bp.Q.value=0.8; const g=ctx.createGain(); g.gain.setValueAtTime(0.001,start); g.gain.linearRampToValueAtTime(1.0,start+0.005); g.gain.exponentialRampToValueAtTime(0.0001,start+0.18); src.connect(bp); bp.connect(g); g.connect(master); src.start(start); src.stop(start+0.22); addNode(src); }
+  function cymbal(start){ const src=ctx.createBufferSource(); src.buffer=makeNoiseBuffer(0.8); const hp=ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=5500; const g=ctx.createGain(); g.gain.setValueAtTime(0.8,start); g.gain.exponentialRampToValueAtTime(0.0001,start+0.7); src.connect(hp); hp.connect(g); g.connect(master); src.start(start); src.stop(start+0.9); addNode(src); }
+  function playRimshot(){ const t=now(); drum(110,0.18,t); drum(90,0.22,t+0.18); snare(t+0.36); cymbal(t+0.36); }
+
+  // Pads: 12 requested names + a Stop button
+  const grid=document.getElementById('grid');
+  const pads=[
+    {id:'later',        label:'Later',        hint:'Q', key:'q'},
+    {id:'among',        label:'Among',        hint:'W', key:'w'},
+    {id:'applause',     label:'Applause',     hint:'E', key:'e', synth:playApplause},
+    {id:'badum',        label:'Badum',        hint:'R', key:'r', synth:playRimshot},
+    {id:'crickets',     label:'Crickets',     hint:'A', key:'a'},
+    {id:'alone',        label:'Alone',        hint:'S', key:'s'},
+    {id:'nothingbeats', label:'Nothingbeats', hint:'D', key:'d'},
+    {id:'elevator',     label:'Elevator',     hint:'F', key:'f'},
+    {id:'laugh',        label:'Laugh',        hint:'Z', key:'z'},
+    {id:'hero',         label:'Hero',         hint:'X', key:'x'},
+    {id:'sad',          label:'Sad',          hint:'C', key:'c'},
+    {id:'boom',         label:'Boom',         hint:'V', key:'v'},
+    {id:'stop',         label:'Stop all',     hint:'⎋', key:'Escape', action:stopAll}
+  ];
+  const customBuffers=new Map();
+
+  pads.forEach(p=>{
+    const card=document.createElement('button'); card.className='pad'; card.type='button'; card.dataset.id=p.id;
+    const tools=document.createElement('div'); tools.className='tools';
+    const up=document.createElement('button'); up.className='iconbtn'; up.title='Importer (mp3/wav/ogg)'; up.textContent='⋯';
+    const ln=document.createElement('button'); ln.className='iconbtn'; ln.title='Coller une URL audio'; ln.textContent='🔗';
+    const file=document.createElement('input'); file.type='file'; file.accept='.mp3,.wav,.ogg,.m4a,.aac';
+    tools.appendChild(up); tools.appendChild(ln); tools.appendChild(file);
+    const lab=document.createElement('div'); lab.className='label'; lab.textContent=p.label;
+    const hint=document.createElement('div'); hint.className='hint'; hint.textContent=p.hint ? `Touche : ${p.hint}` : '';
+    card.appendChild(tools); card.appendChild(lab); card.appendChild(hint); grid.appendChild(card);
+
+    card.addEventListener('click', async()=>{ if(p.id==='stop'){ stopAll(); return;} await resume(); playPad(p.id); });
+    up.addEventListener('click', e=>{ e.stopPropagation(); file.click(); });
+    file.addEventListener('change', async()=>{ if(!file.files || !file.files[0]) return; const buf=await fileToBuffer(file.files[0]); if(buf){ customBuffers.set(p.id,buf); flash(card); toast('Son importé sur « '+p.label+' »'); } });
+    ln.addEventListener('click', async e=>{ e.stopPropagation(); const url=prompt('Collez une URL audio (mp3/ogg/wav)'); if(!url) return; try{ const buf=await fetchToBuffer(url.trim()); customBuffers.set(p.id,buf); flash(card); toast('URL liée à « '+p.label+' »'); }catch(err){ toast('Chargement audio impossible (CORS/lien)'); console.error(err);} });
+    card.addEventListener('contextmenu', e=>{ e.preventDefault(); customBuffers.delete(p.id); flash(card); toast('Réinitialisé sur « '+p.label+' »'); });
+  });
+
+  async function resume(){ if(ctx.state!=='running'){ await ctx.resume(); } }
+  async function fileToBuffer(f){ const ab=await f.arrayBuffer(); return await ctx.decodeAudioData(ab); }
+  async function fetchToBuffer(url){ const res=await fetch(url,{mode:'cors'}); if(!res.ok) throw new Error('HTTP '+res.status); const ab=await res.arrayBuffer(); return await ctx.decodeAudioData(ab); }
+  function playPad(id){
+    const p=pads.find(x=>x.id===id); if(!p) return;
+    if(customBuffers.has(id)){ const src=ctx.createBufferSource(); src.buffer=customBuffers.get(id); src.connect(master); src.start(); addNode(src); }
+    else if(ASSET_MAP[id]){ fetchToBuffer(ASSET_MAP[id]).then(buf=>{ const src=ctx.createBufferSource(); src.buffer=buf; src.connect(master); src.start(); addNode(src); }).catch(()=>{ if(p.synth) p.synth(); });
+    } else if(p.synth){ p.synth(); }
+  }
+  const down=new Set();
+  window.addEventListener('keydown', async e=>{ if(down.has(e.code)) return; down.add(e.code); const k=e.key.toLowerCase(); const found=pads.find(p=>(p.key && (p.key.toLowerCase()===k || p.key===e.code))); if(found){ e.preventDefault(); await resume(); if(found.action){found.action()} else { playPad(found.id);} } });
+  window.addEventListener('keyup', e=> down.delete(e.code) );
+  document.getElementById('masterVol').addEventListener('input', e=> master.gain.value=parseFloat(e.target.value) );
+  document.getElementById('stopAll').addEventListener('click', stopAll);
+
+  const overlayEl=document.getElementById('overlay'); const overlayText=document.getElementById('overlayText');
+  function overlay(txt){ if(!txt){ overlayEl.classList.remove('show'); overlayText.textContent=''; return;} overlayText.textContent=txt; overlayEl.classList.add('show'); }
+  function flash(el){ el.animate([{boxShadow:'0 0 0 rgba(56,189,248,0)'},{boxShadow:'0 0 0 6px rgba(56,189,248,.35)'},{boxShadow:'0 0 0 rgba(56,189,248,0)'}],{duration:450,easing:'ease-out'}); }
+  const toastEl=document.getElementById('toast'); let toastTimer=null; function toast(msg){ clearTimeout(toastTimer); toastEl.textContent=msg; toastEl.classList.add('show'); toastTimer=setTimeout(()=> toastEl.classList.remove('show'),1800); }
+
+  // Try to preload local assets (if they exist). Missing files are ignored.
+  (async function preloadAssets(){
+    for(const [id, rel] of Object.entries(ASSET_MAP)){
+      try{
+        const res = await fetch(rel, {mode:'cors'});
+        if(!res.ok) continue;
+        const ab = await res.arrayBuffer();
+        const buf = await ctx.decodeAudioData(ab);
+        customBuffers.set(id, buf);
+      }catch(e){ /* ignore missing or CORS */ }
+    }
+  })();
+})();
+</script>
+</body>
+</html>

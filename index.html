@@ -75,6 +75,8 @@
 (function(){
   // === Fichiers dans ./assets/ (minuscules) ===
   const ASSET_MAP = {
+    bowl1:         "assets/bol1.mp3",
+    bowl2:         "assets/bol2.mp3",
     later:         "assets/later.mp3",
     among:         "assets/among.mp3",
     applause:      "assets/applause.mp3",
@@ -159,6 +161,8 @@
   // UI pads (sans upload/liens)
   const grid=document.getElementById('grid');
   const pads=[
+    {id:'bowl1',        label:'Bowl1'},
+    {id:'bowl2',        label:'Bowl2'},
     {id:'later',        label:'Later',        hint:'Q', key:'q'},
     {id:'among',        label:'Among',        hint:'W', key:'w'},
     {id:'applause',     label:'Applause',     hint:'E', key:'e', synth:playApplause},
